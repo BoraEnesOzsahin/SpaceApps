@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,6 +35,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier
 
 from .data import KOI_FEATURE_COLUMNS
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -249,11 +252,13 @@ def cross_validate_model(
     """Evaluate a pipeline using cross-validation and return fold-level metrics."""
 
     fold_metrics: List[Dict[str, float]] = []
+    total_folds = cv.get_n_splits(X, y)
     for fold_index, (train_idx, test_idx) in enumerate(cv.split(X, y), start=1):
         cloned = clone(pipeline)
         X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
         y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
         start = time.perf_counter()
+        LOGGER.info("Fitting fold %d/%d", fold_index, total_folds)
         cloned.fit(X_train, y_train)
         duration = float(time.perf_counter() - start)
         predictions = cloned.predict(X_test)
@@ -261,6 +266,14 @@ def cross_validate_model(
         metrics["duration_seconds"] = duration
         metrics["fold"] = fold_index
         fold_metrics.append(metrics)
+        LOGGER.info(
+            "Completed fold %d/%d in %.2f seconds (f1_macro=%.3f, accuracy=%.3f)",
+            fold_index,
+            total_folds,
+            duration,
+            metrics.get("f1_macro", float("nan")),
+            metrics.get("accuracy", float("nan")),
+        )
 
     aggregated: Dict[str, Dict[str, float]] = {}
     metric_keys = [key for key in fold_metrics[0] if key not in {"fold"}]
