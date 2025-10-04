@@ -1,14 +1,14 @@
 # Exoplanet Transit Classification Toolkit
 
-This project provides a reproducible machine-learning pipeline and interactive Streamlit dashboard for classifying candidates from NASA's Kepler Objects of Interest (KOI) catalogue. It automatically downloads publicly available KOI data, trains an ensemble model, and exposes an interface for exploring the dataset and predicting dispositions for new observations.
+This project provides a reproducible machine-learning pipeline and interactive Streamlit dashboard for classifying candidates from NASA's Kepler Objects of Interest (KOI) catalogue. It automatically downloads publicly available KOI data, evaluates multiple ensemble models with cross-validation, and exposes an interface for exploring the dataset and predicting dispositions for new observations.
 
 ## Features
 
 - Automated download of a curated subset of the KOI dataset directly from the NASA Exoplanet Archive `nstedAPI` service.
-- Scikit-learn pipeline with preprocessing, Gradient Boosting classifier, and evaluation utilities.
+- Registry of ensemble classifiers (Gradient Boosting, Random Forest, Extra Trees, AdaBoost, Random Subspace, Stacking) with cross-validated scoring, auto-selection, and macro-metric tracking inspired by recent exoplanet vetting studies. [MNRAS 513, 5505](https://academic.oup.com/mnras/article/513/4/5505/6472249) discusses the importance of minimising false positives, while [Luz et al. 2024](https://www.mdpi.com/2079-9292/13/19/3950) benchmarks ensemble pipelines for KOI data.
 - Persisted model artefacts (trained model, metrics, feature importances) for reproducible inference.
 - Streamlit application with:
-  - Performance dashboard (accuracy, classification report, confusion matrix, feature importance).
+  - Performance dashboard (macro accuracy/F1/specificity, classification report, specificity-by-class, confusion matrix, cross-validation leaderboard, feature importance).
   - Dataset explorer with filtering and feature distribution visualisations.
   - Manual prediction form and batch CSV upload for new candidate classification.
 
@@ -25,13 +25,16 @@ This project provides a reproducible machine-learning pipeline and interactive S
 2. **Train the model** (downloads the latest KOI data and saves artefacts under `models/`):
 
    ```bash
-   python -m src.train
+   python -m src.train --auto-select
    ```
 
-   Optional flags:
+   Useful flags:
 
    - `--refresh-data` — force re-download of the KOI dataset.
-   - `--test-size` — change the validation split proportion (default `0.2`).
+   - `--model {name}` — train a specific ensemble from the registry.
+   - `--auto-select` — evaluate all registered ensembles and persist the best performer.
+   - `--selection-metric {metric}` — choose the metric used for automatic selection (default: `f1_macro`).
+   - `--cv-splits N` — adjust the number of stratified folds used during cross-validation (default: `5`).
 
 3. **Launch the Streamlit interface**:
 
@@ -40,6 +43,10 @@ This project provides a reproducible machine-learning pipeline and interactive S
    ```
 
    The dashboard will be available at <http://localhost:8501> by default.
+
+## Research alignment
+
+The expanded evaluation workflow follows guidance from recent literature that emphasises ensemble diversity, cross-validation, and explicit monitoring of false-positive rates when working with KOI- and TESS-like catalogues. [Luz et al. 2024](https://www.mdpi.com/2079-9292/13/19/3950) demonstrate that tuned ensemble methods (e.g., Random Forest, Extra Trees, Stacking) deliver superior macro metrics across KOI folds; we mirror this by exposing a registry of comparable ensembles, exporting fold-wise timings, and ranking models by macro F1. Complementary recommendations from [MNRAS 513, 5505](https://academic.oup.com/mnras/article/513/4/5505/6472249) motivate tracking specificity alongside precision/recall to better differentiate astrophysical false positives, so the dashboard now surfaces macro specificity and class-wise true negative rates.
 
 ## Repository layout
 
@@ -53,8 +60,8 @@ This project provides a reproducible machine-learning pipeline and interactive S
 └── src/
     ├── __init__.py
     ├── data.py            # Data download and loading helpers
-    ├── model.py           # Model construction and persistence utilities
-    └── train.py           # Training entry point
+    ├── model.py           # Model construction and evaluation utilities
+    └── train.py           # Training entry point with cross-validation
 ```
 
 ## Data source
@@ -63,7 +70,7 @@ The project queries the [NASA Exoplanet Archive](https://exoplanetarchive.ipac.c
 
 ## Extending the project
 
-- Experiment with alternative models (e.g., XGBoost, Random Forest) by modifying `src/model.py`.
+- Add or adjust ensemble definitions in `src/model.py` to experiment with alternative hyperparameters or algorithms.
 - Incorporate additional features from the KOI table or other missions (K2, TESS) by updating `src/data.py`.
 - Log training runs with MLflow or Weights & Biases for experiment tracking.
 - Deploy the Streamlit app (e.g., Streamlit Cloud, Hugging Face Spaces) for easy sharing with collaborators.

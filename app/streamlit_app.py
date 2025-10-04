@@ -52,31 +52,106 @@ def get_feature_importances() -> pd.DataFrame | None:
     return pd.DataFrame({"feature": payload["features"], "importance": payload["importances"]})
 
 
+def _extract_summary_metrics(metrics: Dict[str, object]) -> Dict[str, float]:
+    if not metrics:
+        return {}
+    if "metrics" in metrics and isinstance(metrics["metrics"], dict):
+        return metrics["metrics"]
+    return {
+        key: metrics.get(key)
+        for key in ["accuracy", "precision_macro", "recall_macro", "f1_macro", "specificity_macro"]
+        if key in metrics
+    }
+
+
+def _build_cv_dataframe(metrics: Dict[str, object]) -> pd.DataFrame:
+    cross_val = metrics.get("cross_validation", {}) if metrics else {}
+    results = cross_val.get("results", {}) if isinstance(cross_val, dict) else {}
+    rows = []
+    for name, payload in results.items():
+        row = {
+            "Model": name,
+            "Description": payload.get("description", ""),
+        }
+        summary = payload.get("metrics", {})
+        for metric_name in ["accuracy", "precision_macro", "recall_macro", "f1_macro", "specificity_macro"]:
+            metric_stats = summary.get(metric_name)
+            if isinstance(metric_stats, dict):
+                row[f"{metric_name} (mean)"] = metric_stats.get("mean")
+                row[f"{metric_name} (std)"] = metric_stats.get("std")
+        per_fold = payload.get("per_fold", [])
+        if per_fold:
+            durations = [fold.get("duration_seconds") for fold in per_fold if fold.get("duration_seconds") is not None]
+            if durations:
+                row["Avg. fold time (s)"] = float(np.mean(durations))
+        rows.append(row)
+    df = pd.DataFrame(rows)
+    if not df.empty and "f1_macro (mean)" in df.columns:
+        df = df.sort_values(by="f1_macro (mean)", ascending=False, na_position="last")
+    return df
+
+
 def render_metrics_section(metrics: Dict[str, object] | None) -> None:
     st.header("Model performance")
     if not metrics:
         st.warning("No metrics found. Run `python -m src.train` to train the model and populate metrics.")
         return
 
+    summary = _extract_summary_metrics(metrics)
     cols = st.columns(3)
-    cols[0].metric("Validation accuracy", f"{metrics['accuracy']:.3f}")
-    class_report = pd.DataFrame(metrics["classification_report"]).T
-    class_report = class_report.rename(columns={"precision": "Precision", "recall": "Recall", "f1-score": "F1-score"})
-    st.dataframe(class_report.style.format({"Precision": "{:.2f}", "Recall": "{:.2f}", "F1-score": "{:.2f}"}))
+    if summary.get("accuracy") is not None:
+        cols[0].metric("Cross-validated accuracy", f"{summary['accuracy']:.3f}")
+    if summary.get("f1_macro") is not None:
+        cols[1].metric("Macro F1", f"{summary['f1_macro']:.3f}")
+    if summary.get("specificity_macro") is not None:
+        cols[2].metric("Macro specificity", f"{summary['specificity_macro']:.3f}")
 
-    matrix = np.array(metrics["confusion_matrix"])
+    best_model = metrics.get("best_model")
+    if best_model:
+        description = metrics.get("best_model_description") or ""
+        st.markdown(f"**Selected model:** `{best_model}` — {description}")
+
+    class_report = metrics.get("classification_report")
+    if class_report:
+        class_report_df = pd.DataFrame(class_report).T
+        rename_map = {"precision": "Precision", "recall": "Recall", "f1-score": "F1-score"}
+        class_report_df = class_report_df.rename(columns=rename_map)
+        st.dataframe(
+            class_report_df.style.format({col: "{:.2f}" for col in ["Precision", "Recall", "F1-score"] if col in class_report_df}),
+            use_container_width=True,
+        )
+
+    specificity_by_class = metrics.get("specificity_by_class")
+    if specificity_by_class:
+        spec_df = (
+            pd.Series(specificity_by_class)
+            .rename("Specificity")
+            .to_frame()
+            .reset_index()
+            .rename(columns={"index": "Disposition"})
+        )
+        spec_chart = (
+            alt.Chart(spec_df)
+            .mark_bar()
+            .encode(x="Specificity:Q", y=alt.Y("Disposition:N", sort="-x"))
+            .properties(title="Specificity by class", width=400, height=200)
+        )
+        st.altair_chart(spec_chart, use_container_width=False)
+
+    matrix = np.array(metrics.get("confusion_matrix") or [])
     labels = metrics.get("labels", [])
-    matrix_df = pd.DataFrame(matrix, index=labels, columns=labels)
-    heatmap = (
-        alt.Chart(matrix_df.reset_index().melt(id_vars="index", var_name="Predicted", value_name="Count"))
-        .mark_rect()
-        .encode(x="Predicted:O", y="index:O", color="Count:Q", tooltip=["index", "Predicted", "Count"])
-        .properties(width=300, height=300, title="Confusion matrix")
-    )
-    st.altair_chart(heatmap, use_container_width=False)
+    if matrix.size and labels:
+        matrix_df = pd.DataFrame(matrix, index=labels, columns=labels)
+        heatmap = (
+            alt.Chart(matrix_df.reset_index().melt(id_vars="index", var_name="Predicted", value_name="Count"))
+            .mark_rect()
+            .encode(x="Predicted:O", y="index:O", color="Count:Q", tooltip=["index", "Predicted", "Count"])
+            .properties(width=300, height=300, title="Confusion matrix")
+        )
+        st.altair_chart(heatmap, use_container_width=False)
 
     feature_df = get_feature_importances()
-    if feature_df is not None:
+    if feature_df is not None and not feature_df.empty:
         chart = (
             alt.Chart(feature_df)
             .mark_bar()
@@ -88,6 +163,15 @@ def render_metrics_section(metrics: Dict[str, object] | None) -> None:
             .properties(title="Feature importance", width=400, height=300)
         )
         st.altair_chart(chart, use_container_width=False)
+
+    cv_df = _build_cv_dataframe(metrics)
+    if not cv_df.empty:
+        st.subheader("Cross-validation comparison")
+        selection_metric = metrics.get("cross_validation", {}).get("selection_metric") if metrics else None
+        if selection_metric:
+            st.caption(f"Models ranked by `{selection_metric}`.")
+        styled = cv_df.style.format("{:.3f}", subset=[col for col in cv_df.columns if col.endswith(("(mean)", "(std)", "time (s)"))])
+        st.dataframe(styled, use_container_width=True)
 
 
 def render_dataset_section(df: pd.DataFrame) -> None:
