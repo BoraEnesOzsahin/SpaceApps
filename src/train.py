@@ -90,7 +90,7 @@ def train(
     model_path: Path | str = DEFAULT_MODEL_PATH,
     metrics_path: Path | str = DEFAULT_METRICS_PATH,
     feature_importance_path: Path | str = DEFAULT_FEATURE_IMPORTANCE_PATH,
-    cv_splits: int = 5,
+    cv_splits: int = 3,
     auto_select: bool = False,
     selection_metric: str = DEFAULT_SELECTION_METRIC,
 ) -> Dict[str, object]:
@@ -186,7 +186,7 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_FEATURE_IMPORTANCE_PATH,
         help="Path to store feature importance values",
     )
-    parser.add_argument("--cv-splits", type=int, default=5, help="Number of cross-validation folds")
+    parser.add_argument("--cv-splits", type=int, default=3, help="Number of cross-validation folds")
     parser.add_argument(
         "--auto-select",
         action="store_true",

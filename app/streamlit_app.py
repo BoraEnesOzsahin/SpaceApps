@@ -19,12 +19,26 @@ import streamlit as st
 from src.data import KOI_FEATURE_COLUMNS, TARGET_COLUMN, load_koi_dataframe
 from src.model import load_metrics, load_model
 
-MODEL_PATH = PROJECT_ROOT / "models" / "exoplanet_classifier.joblib"
-METRICS_PATH = PROJECT_ROOT / "models" / "metrics.json"
+# Check for enhanced model first, fall back to baseline
+ENHANCED_MODEL_PATH = PROJECT_ROOT / "models" / "enhanced_model.joblib"
+BASELINE_MODEL_PATH = PROJECT_ROOT / "models" / "exoplanet_classifier.joblib"
+MODEL_PATH = ENHANCED_MODEL_PATH if ENHANCED_MODEL_PATH.exists() else BASELINE_MODEL_PATH
+
+ENHANCED_METRICS_PATH = PROJECT_ROOT / "models" / "enhanced_metrics.json"
+BASELINE_METRICS_PATH = PROJECT_ROOT / "models" / "metrics.json"
+METRICS_PATH = ENHANCED_METRICS_PATH if ENHANCED_METRICS_PATH.exists() else BASELINE_METRICS_PATH
+
 FEATURE_IMPORTANCE_PATH = PROJECT_ROOT / "models" / "feature_importances.json"
 
 st.set_page_config(page_title="Exoplanet Transit Classifier", layout="wide")
 st.title("Exoplanet Transit Classification Toolkit")
+
+# Show which model is loaded
+model_type = "🚀 Enhanced Model (with feature engineering)" if MODEL_PATH == ENHANCED_MODEL_PATH else "⚡ Baseline Model"
+st.sidebar.success(f"**Active Model:** {model_type}")
+if MODEL_PATH == ENHANCED_MODEL_PATH:
+    st.sidebar.info("✨ Using advanced features: ratios, interactions, polynomial terms")
+
 
 
 @st.cache_data(show_spinner=True)

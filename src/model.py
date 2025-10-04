@@ -19,6 +19,7 @@ from sklearn.ensemble import (
     GradientBoostingClassifier,
     RandomForestClassifier,
     StackingClassifier,
+    VotingClassifier,
 )
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
@@ -57,17 +58,22 @@ def _stacking_factory(random_state: int) -> StackingClassifier:
             "gradient_boosting",
             GradientBoostingClassifier(
                 random_state=random_state,
-                learning_rate=0.05,
-                n_estimators=400,
-                max_depth=3,
+                learning_rate=0.08,
+                n_estimators=150,
+                max_depth=5,
+                min_samples_split=20,
+                subsample=0.85,
+                max_features="sqrt",
             ),
         ),
         (
             "random_forest",
             RandomForestClassifier(
-                n_estimators=200,
-                max_depth=None,
+                n_estimators=150,
+                max_depth=25,
                 max_features="sqrt",
+                min_samples_split=15,
+                min_samples_leaf=5,
                 class_weight="balanced_subsample",
                 random_state=random_state,
                 n_jobs=-1,
@@ -76,16 +82,23 @@ def _stacking_factory(random_state: int) -> StackingClassifier:
         (
             "extra_trees",
             ExtraTreesClassifier(
-                n_estimators=200,
-                max_depth=None,
+                n_estimators=150,
+                max_depth=25,
                 max_features="sqrt",
+                min_samples_split=15,
+                min_samples_leaf=5,
                 class_weight="balanced_subsample",
                 random_state=random_state,
                 n_jobs=-1,
             ),
         ),
     ]
-    final_estimator = LogisticRegression(max_iter=2000, class_weight="balanced", random_state=random_state)
+    final_estimator = LogisticRegression(
+        max_iter=1000, 
+        class_weight="balanced", 
+        C=0.5,  # Regularization
+        random_state=random_state
+    )
     return StackingClassifier(
         estimators=estimators,
         final_estimator=final_estimator,
@@ -95,26 +108,84 @@ def _stacking_factory(random_state: int) -> StackingClassifier:
     )
 
 
+def _voting_factory(random_state: int) -> VotingClassifier:
+    """Return a soft voting ensemble with diverse base models."""
+    
+    estimators = [
+        (
+            "gradient_boosting",
+            GradientBoostingClassifier(
+                random_state=random_state,
+                learning_rate=0.08,
+                n_estimators=150,
+                max_depth=5,
+                min_samples_split=20,
+                subsample=0.85,
+            ),
+        ),
+        (
+            "random_forest",
+            RandomForestClassifier(
+                n_estimators=150,
+                max_depth=25,
+                max_features="sqrt",
+                min_samples_split=15,
+                class_weight="balanced_subsample",
+                random_state=random_state,
+                n_jobs=-1,
+            ),
+        ),
+        (
+            "extra_trees",
+            ExtraTreesClassifier(
+                n_estimators=150,
+                max_depth=25,
+                max_features="sqrt",
+                min_samples_split=15,
+                class_weight="balanced_subsample",
+                random_state=random_state,
+                n_jobs=-1,
+            ),
+        ),
+    ]
+    
+    return VotingClassifier(
+        estimators=estimators,
+        voting="soft",
+        weights=[2, 1, 1],  # Slightly favor gradient boosting
+        n_jobs=-1,
+    )
+
+
 MODEL_REGISTRY: Dict[str, ModelSpec] = {
     "gradient_boosting": ModelSpec(
         name="gradient_boosting",
-        description="Gradient Boosting classifier with median imputation and standardisation.",
+        description="Maximum accuracy Gradient Boosting with extended training.",
         requires_scaling=True,
         estimator_factory=lambda random_state: GradientBoostingClassifier(
             random_state=random_state,
             learning_rate=0.05,
-            max_depth=3,
-            n_estimators=400,
+            max_depth=7,
+            n_estimators=300,
+            min_samples_split=15,
+            min_samples_leaf=8,
+            subsample=0.8,
+            max_features="sqrt",
+            validation_fraction=0.1,
+            n_iter_no_change=15,
         ),
     ),
     "random_forest": ModelSpec(
         name="random_forest",
-        description="Random Forest with balanced subsampling and tuned tree count.",
+        description="Maximum accuracy Random Forest with more trees.",
         requires_scaling=False,
         estimator_factory=lambda random_state: RandomForestClassifier(
-            n_estimators=200,
-            max_depth=None,
+            n_estimators=250,
+            max_depth=30,
             max_features="sqrt",
+            min_samples_split=10,
+            min_samples_leaf=3,
+            max_samples=0.75,
             class_weight="balanced_subsample",
             random_state=random_state,
             n_jobs=-1,
@@ -122,12 +193,14 @@ MODEL_REGISTRY: Dict[str, ModelSpec] = {
     ),
     "extra_trees": ModelSpec(
         name="extra_trees",
-        description="Extremely Randomised Trees (ExtraTrees) with class balancing.",
+        description="Optimized ExtraTrees with increased diversity.",
         requires_scaling=False,
         estimator_factory=lambda random_state: ExtraTreesClassifier(
-            n_estimators=200,
-            max_depth=None,
+            n_estimators=150,
+            max_depth=25,
             max_features="sqrt",
+            min_samples_split=15,
+            min_samples_leaf=5,
             class_weight="balanced_subsample",
             random_state=random_state,
             n_jobs=-1,
@@ -135,12 +208,12 @@ MODEL_REGISTRY: Dict[str, ModelSpec] = {
     ),
     "ada_boost": ModelSpec(
         name="ada_boost",
-        description="AdaBoost ensemble with shallow decision trees and moderated learning rate.",
+        description="AdaBoost ensemble with optimized parameters.",
         requires_scaling=True,
         estimator_factory=lambda random_state: AdaBoostClassifier(
-            estimator=DecisionTreeClassifier(max_depth=3, random_state=random_state),
-            n_estimators=400,
-            learning_rate=0.3,
+            estimator=DecisionTreeClassifier(max_depth=4, min_samples_split=20, random_state=random_state),
+            n_estimators=200,
+            learning_rate=0.4,
             random_state=random_state,
         ),
     ),
@@ -149,9 +222,9 @@ MODEL_REGISTRY: Dict[str, ModelSpec] = {
         description="Random Subspace method via Bagging with feature subsampling.",
         requires_scaling=False,
         estimator_factory=lambda random_state: BaggingClassifier(
-            estimator=DecisionTreeClassifier(max_depth=None, random_state=random_state),
-            n_estimators=200,
-            max_features=0.6,
+            estimator=DecisionTreeClassifier(max_depth=20, min_samples_split=15, random_state=random_state),
+            n_estimators=120,
+            max_features=0.7,
             bootstrap=True,
             n_jobs=-1,
             random_state=random_state,
@@ -159,9 +232,15 @@ MODEL_REGISTRY: Dict[str, ModelSpec] = {
     ),
     "stacking": ModelSpec(
         name="stacking",
-        description="Stacked ensemble combining gradient boosting, random forest, and extra trees.",
+        description="Optimized stacked ensemble with enhanced base models.",
         requires_scaling=True,
         estimator_factory=_stacking_factory,
+    ),
+    "voting": ModelSpec(
+        name="voting",
+        description="Soft voting ensemble combining diverse models.",
+        requires_scaling=True,
+        estimator_factory=_voting_factory,
     ),
 }
 
@@ -172,18 +251,48 @@ def get_model_registry() -> Dict[str, ModelSpec]:
     return MODEL_REGISTRY
 
 
-def build_model(model_name: str = "gradient_boosting", *, random_state: int = 42) -> Pipeline:
+def build_model(model_name: str = "gradient_boosting", *, random_state: int = 42, 
+                use_feature_engineering: bool = True, use_polynomial: bool = False) -> Pipeline:
     """Create a scikit-learn pipeline for classifying KOI dispositions."""
 
     if model_name not in MODEL_REGISTRY:
         raise KeyError(f"Unknown model '{model_name}'. Available models: {sorted(MODEL_REGISTRY)}")
 
     spec = MODEL_REGISTRY[model_name]
-    steps: List[tuple[str, object]] = [("imputer", SimpleImputer(strategy="median"))]
+    steps: List[tuple[str, object]] = []
+    
+    # Add feature engineering if requested (before imputation to create features)
+    if use_feature_engineering:
+        try:
+            from .feature_engineering import ExoplanetFeatureEngineer
+            steps.append(("feature_engineer", ExoplanetFeatureEngineer(
+                add_polynomial=False,  # Do polynomial separately after imputation
+                polynomial_degree=2,
+                add_interactions=True,
+                add_ratios=True
+            )))
+        except ImportError:
+            LOGGER.warning("Feature engineering module not available, skipping")
+    
+    # Add imputation (must be after feature engineering but before polynomial)
+    steps.append(("imputer", SimpleImputer(strategy="median")))
+    
+    # Add polynomial features after imputation to avoid NaN issues
+    if use_polynomial:
+        from sklearn.preprocessing import PolynomialFeatures
+        steps.append(("polynomial", PolynomialFeatures(degree=2, include_bias=False, interaction_only=False)))
+        LOGGER.info("Added polynomial features (degree=2)")
+    
+    # Add scaling if needed
     if spec.requires_scaling:
-        steps.append(("scaler", StandardScaler()))
+        from sklearn.preprocessing import RobustScaler
+        steps.append(("scaler", RobustScaler()))  # More robust to outliers
+    
+    # Add classifier
     steps.append(("classifier", spec.estimator_factory(random_state)))
-    return Pipeline(steps=steps)
+    
+    # Enable memory caching to avoid redundant preprocessing during CV
+    return Pipeline(steps=steps, memory=joblib.Memory(location=".cache", verbose=0))
 
 
 def compute_specificity(conf: np.ndarray, labels: Iterable[str]) -> Dict[str, float]:
