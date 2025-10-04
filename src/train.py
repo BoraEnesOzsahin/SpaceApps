@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Dict, Iterable
 
@@ -95,6 +96,8 @@ def train(
 ) -> Dict[str, object]:
     """Train the classifier, evaluate ensembles via cross-validation, and persist artefacts."""
 
+    start_time = time.perf_counter()
+
     df = load_koi_dataframe(refresh=refresh_data)
     X, y = split_features_and_target(df)
     labels: Iterable[str] = sorted(y.unique())
@@ -159,7 +162,9 @@ def train(
     metrics_payload.update(summary_metrics)
 
     save_metrics(metrics_payload, metrics_path)
+    elapsed = time.perf_counter() - start_time
     LOGGER.info("Saved metrics to %s", metrics_path)
+    LOGGER.info("Training completed in %.2f seconds", elapsed)
     return metrics_payload
 
 
