@@ -35,6 +35,12 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier
 
+try:
+    from xgboost import XGBClassifier
+    XGBOOST_AVAILABLE = True
+except ImportError:
+    XGBOOST_AVAILABLE = False
+
 from .data import KOI_FEATURE_COLUMNS
 
 LOGGER = logging.getLogger(__name__)
@@ -243,6 +249,51 @@ MODEL_REGISTRY: Dict[str, ModelSpec] = {
         estimator_factory=_voting_factory,
     ),
 }
+
+# Add XGBoost if available
+if XGBOOST_AVAILABLE:
+    MODEL_REGISTRY["xgboost_gpu"] = ModelSpec(
+        name="xgboost_gpu",
+        description="XGBoost with GPU acceleration for fast training.",
+        requires_scaling=True,
+        estimator_factory=lambda random_state: XGBClassifier(
+            random_state=random_state,
+            tree_method='gpu_hist',  # Enable GPU acceleration
+            gpu_id=0,
+            n_estimators=300,
+            max_depth=7,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            min_child_weight=3,
+            gamma=0.1,
+            reg_alpha=0.1,
+            reg_lambda=1.0,
+            eval_metric='logloss',
+            n_jobs=-1,
+        ),
+    )
+    
+    MODEL_REGISTRY["xgboost_cpu"] = ModelSpec(
+        name="xgboost_cpu",
+        description="XGBoost optimized for CPU training.",
+        requires_scaling=True,
+        estimator_factory=lambda random_state: XGBClassifier(
+            random_state=random_state,
+            tree_method='hist',  # Fast CPU algorithm
+            n_estimators=300,
+            max_depth=7,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            min_child_weight=3,
+            gamma=0.1,
+            reg_alpha=0.1,
+            reg_lambda=1.0,
+            eval_metric='logloss',
+            n_jobs=-1,
+        ),
+    )
 
 
 def get_model_registry() -> Dict[str, ModelSpec]:

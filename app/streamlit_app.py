@@ -19,14 +19,34 @@ import streamlit as st
 from src.data import KOI_FEATURE_COLUMNS, TARGET_COLUMN, load_koi_dataframe
 from src.model import load_metrics, load_model
 
-# Check for enhanced model first, fall back to baseline
+# Check for models in order of preference: XGBoost GPU > Enhanced > Baseline
+XGBOOST_MODEL_PATH = PROJECT_ROOT / "models" / "xgboost_gpu_model.joblib"
 ENHANCED_MODEL_PATH = PROJECT_ROOT / "models" / "enhanced_model.joblib"
 BASELINE_MODEL_PATH = PROJECT_ROOT / "models" / "exoplanet_classifier.joblib"
-MODEL_PATH = ENHANCED_MODEL_PATH if ENHANCED_MODEL_PATH.exists() else BASELINE_MODEL_PATH
 
+if XGBOOST_MODEL_PATH.exists():
+    MODEL_PATH = XGBOOST_MODEL_PATH
+    MODEL_TYPE = "🚀 XGBoost GPU Model"
+    MODEL_INFO = "✨ GPU-accelerated with feature engineering & polynomial features"
+elif ENHANCED_MODEL_PATH.exists():
+    MODEL_PATH = ENHANCED_MODEL_PATH
+    MODEL_TYPE = "⚡ Enhanced Model"
+    MODEL_INFO = "✨ Advanced features: ratios, interactions, polynomial terms"
+else:
+    MODEL_PATH = BASELINE_MODEL_PATH
+    MODEL_TYPE = "📊 Baseline Model"
+    MODEL_INFO = "Standard scikit-learn model"
+
+XGBOOST_METRICS_PATH = PROJECT_ROOT / "models" / "xgboost_gpu_metrics.json"
 ENHANCED_METRICS_PATH = PROJECT_ROOT / "models" / "enhanced_metrics.json"
 BASELINE_METRICS_PATH = PROJECT_ROOT / "models" / "metrics.json"
-METRICS_PATH = ENHANCED_METRICS_PATH if ENHANCED_METRICS_PATH.exists() else BASELINE_METRICS_PATH
+
+if XGBOOST_METRICS_PATH.exists():
+    METRICS_PATH = XGBOOST_METRICS_PATH
+elif ENHANCED_METRICS_PATH.exists():
+    METRICS_PATH = ENHANCED_METRICS_PATH
+else:
+    METRICS_PATH = BASELINE_METRICS_PATH
 
 FEATURE_IMPORTANCE_PATH = PROJECT_ROOT / "models" / "feature_importances.json"
 
@@ -34,10 +54,8 @@ st.set_page_config(page_title="Exoplanet Transit Classifier", layout="wide")
 st.title("Exoplanet Transit Classification Toolkit")
 
 # Show which model is loaded
-model_type = "🚀 Enhanced Model (with feature engineering)" if MODEL_PATH == ENHANCED_MODEL_PATH else "⚡ Baseline Model"
-st.sidebar.success(f"**Active Model:** {model_type}")
-if MODEL_PATH == ENHANCED_MODEL_PATH:
-    st.sidebar.info("✨ Using advanced features: ratios, interactions, polynomial terms")
+st.sidebar.success(f"**Active Model:** {MODEL_TYPE}")
+st.sidebar.info(MODEL_INFO)
 
 
 
